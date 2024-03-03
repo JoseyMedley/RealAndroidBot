@@ -4,10 +4,14 @@ import random
 import time
 import sys
 import re
+import datetime
 import requests
 import numpy as np
-
+from peewee import BigIntegerField
 from pathlib import Path
+import uuid
+import json
+from names import POKEMON
 from PIL import Image
 
 from ImageUtils import extract_text_from_image, crop_horizontal_piece, crop_top_half, crop_bottom_half
@@ -39,6 +43,9 @@ async def set_config(main_config):
     global config
     config = main_config
 
+#needed for compatibility with Rocketmap
+class UBigIntegerField(BigIntegerField):
+    db_field = 'bigint unsigned'
 
 async def screen_cap(p, border_width=80):
     global config
@@ -504,7 +511,10 @@ async def clear_quest(d, p, pokemon):
 
 async def check_quest(d, p, pokemon, rab_runtime_status=None):
     # Tap quest icon
-    await tap_screen(p, 986, 1595, 2.0)
+    if config.get('resize', False):
+        await tap_screen(p, 986*720/1080, 1595*1280/1920, 1.0)
+    else:
+        await tap_screen(p, 986, 1595, 2.0)
     await asyncio.sleep(0.5)
     im_rgb = await screen_cap(d)
     if not is_quest_page(im_rgb):
@@ -1197,31 +1207,56 @@ def format_iv(pokemon):
 
 
 async def report_encounter(p, d, pokemon, device_id, pgsharp_client=None):
-    #if pgsharp_client:
-    #    pokemon.latitude, pokemon.longitude = await pgsharp_client.get_location(p, d)
+    if pokemon.name == '???' or pokemon.name == '':
+        return
+    mappokemon = {
+                'encounter_id': abs(uuid.uuid1().int & (1<<64)-1),
+                'spawnpoint_id': abs(uuid.uuid1().int & (1<<64)-1),
+                'pokemon_id': int(pokemon.dex),
+                'latitude': pokemon.latitude,
+                'longitude': pokemon.longitude,
+                'disappear_time': datetime.datetime.utcnow() + datetime.timedelta(minutes=60),
+                'individual_attack': pokemon.atk_iv,
+                'individual_defense': pokemon.def_iv,
+                'individual_stamina': pokemon.sta_iv,
+                'move_1': None,
+                'move_2': None,
+                'cp': pokemon.cp,
+                'cp_multiplier': None,
+                'height': None,
+                'weight': None,
+                'gender': pokemon.gender,
+                'costume': None,
+                'form': None,
+                'weather_boosted_condition': None,
+                'last_modified': datetime.datetime.utcnow()
+            }
     #send to map
-    #mapresp = requests.post("url", data={pokemon}, auth=('username', 'password'))
+    jsondata = json.dumps(mappokemon, default=str)
+    mapresp = requests.post("https://pogomap.medleytechnologies.com/postdatahere", json=jsondata, auth=('hillaryclinton', 'pokemongotothepolls'))
+    maplink = " https://pogomap.medleytechnologies.com/?lat=" + str(pokemon.latitude) + "&lon=" + str(pokemon.longitude)
     if config.get('discord', False):
         message = ''
         if config['discord'].get('notify_encountered', False) and config['discord'].get('enabled', False):
             keep_poke = await check_keep(p, d, pokemon, keep_shiny=True, show_log=False)
-            iv_str = pokemon.name + ' Found ' + format_iv(pokemon)
+            iv_str = pokemon.name + ' Found IVs: ' + format_iv(pokemon)
             if keep_poke or pokemon.shiny:
                 if pokemon.shiny and config['discord'].get('notify_shiny', False):
-                    message = '**Shiny** ' + iv_str
+                    message = '**Shiny** ' + iv_str + ' Lat: {}'.format(pokemon.latitude) + ' Long: {}'.format(pokemon.longitude)
                 elif pokemon.iv == 100 and config['discord'].get('notify_max_iv', False):
-                    message = '**100IV** ' + iv_str
+                    message = '**100IV** ' + iv_str + ' Lat: {}'.format(pokemon.latitude) + ' Long: {}'.format(pokemon.longitude)
                 elif pokemon.pvp_info and config['discord'].get('notify_pvp_iv', False):
                     if pokemon.pvp_info['GL'].get('rating', 0) >= config['pvp'].get('gl_rating', 100) or pokemon.pvp_info['UL'].get('rating', 0) >= config['pvp'].get('ul_rating', 100):
-                        message = '**PVP** ' + iv_str + ' PVP Information: {}'.format(pokemon.pvp_info)
+                        message = '**PVP** ' + iv_str + ' PVP Information: {}'.format(pokemon.pvp_info) + ' Lat: {}'.format(pokemon.latitude) + ' Long: {}'.format(pokemon.longitude)
             if message == '' and config['discord'].get('notify_all_encountered', False):
-                message = 'IVs: ' + iv_str + ' Pokemon Data: {}'.format(pokemon)
+                message = iv_str + ' PVP Info: {}'.format(pokemon.pvp_info) + ' Lat: {}'.format(pokemon.latitude) + ' Long: {}'.format(pokemon.longitude)
             webhook_url = config['discord'].get('webhook_url', '')
-            if webhook_url:
+            if webhook_url and message != '':
                 shiny_folder = ''
                 if pokemon.shiny:
                     shiny_folder = 'shiny/'
-                send_to_discord(webhook_url, 'RAB Encounter {}'.format(device_id), message, "https://github.com/PokeAPI/sprites/raw/master/sprites/pokemon/" + shiny_folder + str(pokemon.dex) + ".png")
+                message = message + maplink
+                send_to_discord(webhook_url, 'T H E M A P', message)
 
 
 @timer
@@ -1268,13 +1303,13 @@ async def catch_pokemon(p, d, pokemon, localnetwork=None, displayID=None, is_sha
         logger.info('ITEMS: {}'.format(localnetwork.items))
         localnetwork.total_berries_count = localnetwork.items.get('ITEM_RAZZ_BERRY', 0) + localnetwork.items.get(
             'ITEM_NANAB_BERRY', 0) + localnetwork.items.get('ITEM_GOLDEN_RAZZ_BERRY', 0) + localnetwork.items.get('ITEM_GOLDEN_PINAP_BERRY', 0)
-
+    screenshot_offset = config['client'].get('screenshot_shift', 0)
     while catching:
         is_caught = False
         trial += 1
         logger.info('Current trial #{}'.format(trial))
         im_rgb = await screen_cap(d)
-        if is_zero_ball(im_rgb):
+        if is_zero_ball(im_rgb, screenshot_offset):
             logger.warning('No More Balls')
             await tap_exit_btn(p)  # Flee, dont waste time
             is_caught = False
@@ -1409,44 +1444,47 @@ async def catch_pokemon(p, d, pokemon, localnetwork=None, displayID=None, is_sha
         # Let's keep the old codes
         # This section attempt to use toast to check the status of last action
         if (config['client'].get('transfer_on_catch', False) and config['client'].get('client', '').lower() in ['hal', 'pokemod', 'espresso']) or config['client'].get('client', '').lower() in ['mad', 'pgsharp', 'pgsharp paid', 'pgsharppaid']:
-            await asyncio.sleep(2)
-            message = d.toast.get_message(2.0, 4.0, "").lower()
-            if 'caught' in message or 'capture' in message:
-                logger.info('{} (IV{} | CP{} | LVL{}) was caught.'.format(pokemon.name, pokemon.iv, pokemon.cp, pokemon.level))
-                is_caught = True
-                confirm_caught = True
-                if rab_runtime_status:
-                    rab_runtime_status.pokemon_caught += 1
-                    if pokemon.shiny:
-                        rab_runtime_status.pokemon_shiny_caught += 1
-                    if is_shadow:
-                        rab_runtime_status.pokemon_shadow_caught += 1
-                if not config['client'].get('transfer_on_catch', False):
-                    if config['client'].get('client', '').lower() == 'mad':
-                        await asyncio.sleep(6)
-                    else:
-                        await asyncio.sleep(12)
+            try:
+                await asyncio.sleep(2)
+                message = d.toast.get_message(2.0, 4.0, "").lower()
+                if 'caught' in message or 'capture' in message:
+                    logger.info('{} (IV{} | CP{} | LVL{}) was caught.'.format(pokemon.name, pokemon.iv, pokemon.cp, pokemon.level))
+                    is_caught = True
+                    confirm_caught = True
+                    if rab_runtime_status:
+                        rab_runtime_status.pokemon_caught += 1
+                        if pokemon.shiny:
+                            rab_runtime_status.pokemon_shiny_caught += 1
+                        if is_shadow:
+                            rab_runtime_status.pokemon_shadow_caught += 1
+                    if not config['client'].get('transfer_on_catch', False):
+                        if config['client'].get('client', '').lower() == 'mad':
+                            await asyncio.sleep(6)
+                        else:
+                            await asyncio.sleep(12)
 
-                break
-            elif 'escaped' in message:
-                logger.info('Pokemon escaped')
-                if config['client'].get('client', '').lower() == 'mad':
-                    await asyncio.sleep(5)
+                    break
+                elif 'escaped' in message:
+                    logger.info('Pokemon escaped')
+                    if config['client'].get('client', '').lower() == 'mad':
+                        await asyncio.sleep(5)
+                    else:
+                        await asyncio.sleep(7)
+                    continue
+                elif 'missed' in message:
+                    logger.info('Missed hitting...')
+                    continue
+                elif 'fled' in message or 'flee' in message:
+                    logger.info('{} (IV{} | CP{} | LVL{}) has fled.'.format(pokemon.name, pokemon.iv, pokemon.cp, pokemon.level))
+                    is_caught = False
+                    if rab_runtime_status:
+                        rab_runtime_status.pokemon_fled += 1
+                    break
                 else:
-                    await asyncio.sleep(7)
-                continue
-            elif 'missed' in message:
-                logger.info('Missed hitting...')
-                continue
-            elif 'fled' in message or 'flee' in message:
-                logger.info('{} (IV{} | CP{} | LVL{}) has fled.'.format(pokemon.name, pokemon.iv, pokemon.cp, pokemon.level))
-                is_caught = False
-                if rab_runtime_status:
-                    rab_runtime_status.pokemon_fled += 1
-                break
-            else:
-                logger.debug('Missed hitting...')
-                continue
+                    logger.debug('Missed hitting...')
+                    continue
+            except uiautomator2.exceptions.BaseError:
+                logger.info('Error getting toast message')
 
         # if config['client'].get('client','').lower() in ['pgsharp', 'pgsharp paid']:
 
