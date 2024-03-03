@@ -133,8 +133,15 @@ def match_key_word_wrapper(im, key_word_list, binary=True, threshold=200):
 
 def is_home_page(im):
     logger.debug("Checking: home page?")
-    im_bottom = crop_bottom_half(im)
 
+    r, g, b = im.getpixel((540, 1570))
+    #logger.info("Check location color: R:{} G: {} B: {}".format(r,g,b))
+    if ((253 <= r <= 255) and (50 <= g <= 65) and (60 <= b <= 70)):
+        logger.debug("Main Menu Pokeball (Red) suspected, closing...")
+        return True
+
+    im_bottom = crop_bottom_half(im)
+    
     th_quest_symbol = 5500000  # orginal is 6300000
     template_path = 'assets/QuestSymbol.png'
     has_quest_symbol = match_template_wrapper(template_path, im_bottom, threshold=th_quest_symbol, resize_template=True)
@@ -149,28 +156,21 @@ def is_home_page(im):
         logger.debug('YES: found {}'.format(os.path.basename(template_path)))
         return True
 
-    # last restort
-    r, g, b = im.getpixel((540, 1730))
-    #logger.info("Check location color: R:{} G: {} B: {}".format(r,g,b))
-    if ((253 <= r <= 255) and (50 <= g <= 65) and (60 <= b <= 70)):
-        logger.debug("Main Menu Pokeball (Red) suspected, closing...")
-        return True
-
-    # last restort
+    # last resort
     r, g, b = im.getpixel((540, 1710))
     #logger.info("Check location color: R:{} G: {} B: {}".format(r,g,b))
     if ((253 <= r <= 255) and (50 <= g <= 65) and (60 <= b <= 70)):
         logger.debug("Main Menu Pokeball (Red) suspected, closing...")
         return True
 
-    # last restort
+    # last resort
     r, g, b = im.getpixel((540, 1775))
     #logger.info("Check location color: R:{} G: {} B: {}".format(r,g,b))
     if ((180 <= r <= 190) and (180 <= g <= 190) and (180 <= b <= 190)):
         logger.debug("GMain Menu Pokeball (Grey) suspected, closing...")
         return True
 
-    # last restort
+    # last resort
     r, g, b = im.getpixel((540, 1755))
     #logger.info("Check location color: R:{} G: {} B: {}".format(r,g,b))
     if ((180 <= r <= 190) and (180 <= g <= 190) and (180 <= b <= 190)):
@@ -459,8 +459,8 @@ def is_pokestop_page(im):
     return False
 
 
-def is_zero_ball(im):
-    r, g, b = im.getpixel((405, 1840))
+def is_zero_ball(im, offset):
+    r, g, b = im.getpixel((405, 1610 + offset))
     logger.debug("Check location color: R:{} G: {} B: {}".format(r, g, b))
     if (250 <= r <= 255) and (50 <= g <= 60) and (75 <= b <= 90):
         logger.debug("No Ball Left...")
@@ -965,6 +965,7 @@ def is_profile_page(im):
 
 
 def is_quest_page(im):
+    return True
     logger.debug("Checking: quest page?")
 
     im_cropped = crop_top_half(im)
@@ -979,7 +980,7 @@ def is_quest_page(im):
     s2 = extract_text_from_image(im, binary=True, threshold=200, reverse=True)
     text = s1 + ' ' + s2
 
-    key_word_list = ['today', 'field', 'special', 'research', 'progress', 'celebration']
+    key_word_list = ['today', 'field', 'special', 'research', 'progress', 'celebration', 'adventure']
     matched = []
     for x in key_word_list:
         if x in text:
