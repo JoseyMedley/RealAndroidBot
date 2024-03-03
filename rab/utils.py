@@ -5,6 +5,7 @@ import operator
 import os
 import random
 import re
+import subprocess
 import time
 from asyncio import Semaphore
 from enum import Enum
@@ -413,3 +414,36 @@ def get_vertex(cell, v):
 def get_s2_cell_as_polygon(lat, lon, level=12):
     cell = S2Cell(S2CellId.from_lat_lng(LatLng.from_degrees(lat, lon)).parent(level))
     return [(get_vertex(cell, v)) for v in range(0, 4)]
+
+
+def get_adb(devicetype):
+    if(devicetype.lower() == "nox"):
+        return "C:\\Program Files (x86)\\Nox\\bin\\nox_adb.exe"
+    elif(devicetype.lower() == "mumu"):
+        return "C:\\Program Files\\MuMu\\emulator\\nemu\\vmonitor\\bin\\adb_server.exe"
+    else:
+        return "adb"
+
+
+def get_location_coordinates(config, device_id):
+    coords = []
+    adb_path = get_adb(config['client'].get('type', 'Real'))
+    args = [
+        adb_path,
+        "-s",
+        device_id,
+        "shell",
+        "dumpsys",
+        "notification",
+        "|",
+        "grep",
+        "Tapped"
+    ]
+    p = subprocess.Popen([str(arg) for arg in args], stdout=subprocess.PIPE)
+    stdout, stderr = p.communicate()
+    if stdout.decode() == '':
+        coords = [0.0, 0.0]
+    else:
+        coords.append(float(stdout[-34:-25].decode()))
+        coords.append(float(stdout[-24:-14].decode()))
+    return coords
