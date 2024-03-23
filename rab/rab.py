@@ -928,6 +928,9 @@ class Main:
             logger.info("Tapping...")
             await tap_screen(self.p, 540, 1100, 0.25)
             latitude, longitude = get_location_coordinates(config, device_id)
+            if latitude == 0.0 or longitude == 0.0:
+                await tap_screen(self.p, 540, 1100, 0.25)
+                latitude, longitude = get_location_coordinates(config, device_id)
             for y in range(1300, 1180, -10):
                 await tap_screen(self.p, 540, y, 0.25)
                 im_rgb = await screen_cap(self.d)
@@ -942,16 +945,16 @@ class Main:
                                     break
                                 im_rgb = await screen_cap(self.d)
                                 self.pokemon.update_stats_from_catch_screen(im_rgb)
+                                self.pokemon.latitude = latitude
+                                self.pokemon.longitude = longitude
+                                report_encounter(self.p, self.d, self.pokemon, self.device_id, pgsharp_client)
                                 if self.config['catch'].get('only_shiny', False) and not self.pokemon.shiny:
                                     await asyncio.sleep(1)
-                                    report_encounter(self.p, self.d, self.pokemon, self.device_id, pgsharp_client)
                                     self.d.press("back")  # Flee
                                     self.no_action_count = 0
                                     return 'on_pokemon'
                                 counter += 1
-                                await asyncio.sleep(0.5)
-                            self.pokemon.latitude = latitude
-                            self.pokemon.longitude = longitude
+                                await asyncio.sleep(0.5) 
                             pokemon_caught = await catch_pokemon(self.p, self.d, self.pokemon, rab_runtime_status=rab_runtime_status, pgsharp_client=pgsharp_client, mad_client=mad_client, device_id=self.device_id)
                             if (pokemon_caught and not self.config['client'].get('transfer_on_catch', False)):
                                 if pokemon_caught != 'No Ball':
