@@ -929,8 +929,7 @@ class Main:
             await tap_screen(self.p, 540, 1100, 0.25)
             latitude, longitude = get_location_coordinates(config, device_id)
             if latitude == 0.0 or longitude == 0.0:
-                await tap_screen(self.p, 540, 1100, 0.25)
-                latitude, longitude = get_location_coordinates(config, device_id)
+                latitude, longitude = await pgsharp_client.get_location(self.p, self.d)
             for y in range(1300, 1180, -10):
                 await tap_screen(self.p, 540, y, 0.25)
                 im_rgb = await screen_cap(self.d)
