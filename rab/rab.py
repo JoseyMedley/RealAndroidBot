@@ -7,6 +7,7 @@ import re
 import sys
 import time
 import random
+import uiautomator2
 #import threading
 
 import subprocess
@@ -363,24 +364,26 @@ class Main:
             await self.p.connect_wifi(self.args.wifi_ip, self.wifi_port)
             self.device_id = self.args.wifi_ip + ':' + self.wifi_port
             await self.p.set_device(self.device_id)
-
-        try:
-            if self.args.device_id is None:
-                self.device_id = await self.p.get_device()
-            else:
-                if self.args.wifi_ip is None:
-                    await self.p.set_device(self.args.device_id)
-                    self.device_id = self.args.device_id
-                else:
+        cont = True
+        while cont:
+            try:
+                if self.args.device_id is None:
                     self.device_id = await self.p.get_device()
-        except PhoneNotConnectedError:
-            logger.exception("RAB is unable to detect any phone attached to your system.")
-            sys.exit(1)
-        except Exception as e:
-            # Change exception to error for deployment (so client wont see chunks of errors during exit)
-            logger.error("An error occured while trying to get your device(s)")
-            logger.error("Please check device type and connection")
-            sys.exit(1)
+                    cont = False
+                else:
+                    if self.args.wifi_ip is None:
+                        await self.p.set_device(self.args.device_id)
+                        self.device_id = self.args.device_id
+                        cont = False
+                    else:
+                        self.device_id = await self.p.get_device()
+                        cont = False
+            except PhoneNotConnectedError:
+                logger.warning("RAB is unable to detect any phone attached to your system.")
+            except Exception as e:
+                # Change exception to error for deployment (so client wont see chunks of errors during exit)
+                logger.warning("An error occured while trying to get your device(s)")
+                logger.warning("Please check device type and connection")
 
         if not self.device_id:
             logger.warning("Cannot get devices, please ensure you have connected your device.")
@@ -912,6 +915,8 @@ class Main:
             if pgsharp_client.current_index >= pgsharp_client.nearby_count:
                 pgsharp_client.current_index = 0
             if pgsharp_client.nearby_count == 0:
+                self.d.press("back") # make sure not stuck on wrong screen
+                await asyncio.sleep(0.5)
                 if not await pgsharp_client.wait_for_spawn(self.p, self.d):
                     logger.info('No nearby Pokemon found...')
                     self.no_action_count += 1
@@ -929,7 +934,8 @@ class Main:
             await tap_screen(self.p, 540, 1100, 0.25)
             latitude, longitude = get_location_coordinates(config, device_id)
             if latitude == 0.0 or longitude == 0.0:
-                latitude, longitude = await pgsharp_client.get_location(self.p, self.d)
+                # latitude, longitude = await pgsharp_client.get_location(self.p, self.d)
+                latitude, longitude = get_location_coordinates(config, device_id)
             for y in range(1300, 1180, -10):
                 await tap_screen(self.p, 540, y, 0.25)
                 im_rgb = await screen_cap(self.d)
@@ -5192,7 +5198,6 @@ def call_main(event=None, telegram_client=None, frm_telegram_id=None, frm_donor_
         logger.info('Also ensure that you have edited the file according to what 3rd party app that you are using.')
         logger.info('Check through the options of the config file and ensure it works for your 3rd party app.')
         sys.exit(1)
-
     if client:
         logger.info('TELEGRAM CLIENT IS ACTIVE')
         default_shiny_feed = [-1001204900874]
@@ -5227,10 +5232,17 @@ def call_main(event=None, telegram_client=None, frm_telegram_id=None, frm_donor_
 
         # Feed Check
         # @client.on(events.NewMessage(chats=telegram_src))  # Default Shiny Channel until finialized
-
-        client.loop.run_until_complete(Main(args).start())
+        while True:
+            try:
+                client.loop.run_until_complete(Main(args).start())
+            except Exception:
+                continue
     else:
-        asyncio.run(Main(args).start())
+        while True:
+            try:
+                asyncio.run(Main(args).start())
+            except Exception:
+                continue
 
 # call_main()
 #logger.info('Unexpected exit')
